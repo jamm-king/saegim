@@ -1,0 +1,25 @@
+spring:
+  application:
+    name: saegim
+  r2dbc:
+    url: ${DB_URL:r2dbc:mysql://localhost:3306/saegim?serverZoneId=UTC}
+    username: ${DB_USER:saegim}
+    password: ${DB_PASSWORD}
+  sql:
+    init:
+      mode: always
+  codec:
+    max-in-memory-size: 1MB
+server:
+  port: 8080
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+saegim:
+  test-now: ${SAEGIM_TEST_NOW:}
+  openai:
+    api-key: ${OPENAI_API_KEY:}
+    model: ${OPENAI_MODEL:gpt-6-luna}
+    base-url: https://api.openai.com/v1

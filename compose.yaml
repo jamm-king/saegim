@@ -1,0 +1,43 @@
+name: saegim
+services:
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: saegim
+      MYSQL_USER: saegim
+      MYSQL_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in your env file}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in your env file}
+      TZ: UTC
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "MYSQL_PWD=$$MYSQL_PASSWORD mysql -h 127.0.0.1 -u saegim saegim -e 'SELECT 1' > /dev/null 2>&1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+  api:
+    build: ./apps/api
+    environment:
+      DB_URL: r2dbc:mysql://mysql:3306/saegim?serverZoneId=UTC
+      DB_USER: saegim
+      DB_PASSWORD: ${DB_PASSWORD}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-6-luna}
+      SAEGIM_TEST_NOW: ${SAEGIM_TEST_NOW:-}
+      TZ: UTC
+    ports:
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      mysql:
+        condition: service_healthy
+  web:
+    build: ./apps/web
+    environment:
+      API_BASE_URL: http://api:8080
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      api:
+        condition: service_started
+volumes:
+  mysql-data:

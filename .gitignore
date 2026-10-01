@@ -1,0 +1,9 @@
+.env
+.env.*
+!.env.example
+node_modules/
+.next/
+.gradle/
+build/
+.tools/
+*.tsbuildinfo
