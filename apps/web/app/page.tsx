@@ -165,7 +165,7 @@ export default function Chat() {
       {error && <div role="alert" className="mb-3 rounded-xl bg-red-50 p-3 text-sm text-red-800">{error} <button disabled={busy || loading} onClick={() => void reload()} className="ml-2 underline">상태 새로고침</button></div>}
       <form onSubmit={send} className="rounded-2xl border border-stone-300 bg-white p-3 shadow-sm">
         <label htmlFor="question" className="sr-only">{reviewing ? "복습 답변" : "새 질문"}</label>
-        <textarea id="question" value={draft} onChange={event => setDraft(event.target.value)} maxLength={6000} rows={3} placeholder={answered ? "피드백을 읽고 다음 질문으로 넘어가세요" : reviewing ? "정답을 보기 전에 기억나는 대로 적어 주세요" : "질문이나 생각을 적어 주세요"} className="w-full resize-none rounded-lg p-2 leading-6 outline-none focus:ring-2 focus:ring-[#21634c]" disabled={busy || answered} />
+        <textarea id="question" value={draft} onChange={event => setDraft(event.target.value)} maxLength={6000} rows={3} placeholder={answered ? "피드백을 읽고 다음 질문으로 넘어가세요" : reviewing ? "정답을 보기 전에 기억나는 대로 적어 주세요" : "질문이나 생각을 적어 주세요"} className="w-full resize-none rounded-lg p-2 leading-6 outline-none" disabled={busy || answered} />
         <div className="flex items-center justify-between gap-3"><span className="pl-2 text-xs text-stone-400">{draft.length.toLocaleString()} / 6,000</span><button type="submit" disabled={busy || loading || answered || !draft.trim() || !settings?.configured} className="rounded-xl bg-[#21634c] px-5 py-2 text-sm text-white">{busy ? "답변 생성 중" : reviewing ? "복습 답변 보내기" : "보내기"}</button></div>
       </form>
       <p className="mt-3 text-center text-xs text-stone-500">AI 답변은 틀릴 수 있습니다. 중요한 내용은 원문과 함께 확인하세요.</p>
