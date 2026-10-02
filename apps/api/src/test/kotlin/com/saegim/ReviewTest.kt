@@ -5,6 +5,11 @@ import java.time.*
 import kotlin.test.*
 
 class ReviewTest {
+    @Test fun `history window contains anchor and two previous calendar dates across month boundary`() {
+        assertEquals(listOf("2026-10-01", "2026-09-30", "2026-09-29"), ReviewDates.candidates(LocalDate.parse("2026-10-01")).map { it.toString() })
+        assertEquals(LocalDate.parse("2026-10-01"), ReviewDates.localDate(LocalDateTime.parse("2026-09-30T15:00:00")))
+        assertEquals(LocalDate.parse("2026-09-30"), ReviewDates.localDate(LocalDateTime.parse("2026-09-30T14:59:59")))
+    }
     @Test fun `Seoul midnight switches the target date`() {
         assertEquals(LocalDate.parse("2026-09-30"), ReviewDates.yesterday(Clock.fixed(Instant.parse("2026-10-01T14:59:59Z"), ZoneOffset.UTC)))
         assertEquals(LocalDate.parse("2026-10-01"), ReviewDates.yesterday(Clock.fixed(Instant.parse("2026-10-01T15:00:00Z"), ZoneOffset.UTC)))

@@ -28,6 +28,14 @@ class ReviewConfig {
                     .bind("name", name).map { row, _ -> (row.get("n") as Number).toInt() }.one().awaitSingle()
                 if (exists == 0) db.sql("ALTER TABLE messages ADD COLUMN $name $type").fetch().rowsUpdated().awaitSingle()
             }
+            for (name in listOf("anchor_date", "source_start_date", "source_end_date")) {
+                val exists = db.sql("SELECT COUNT(*) AS n FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'review_days' AND column_name = :name")
+                    .bind("name", name).map { row, _ -> (row.get("n") as Number).toInt() }.one().awaitSingle()
+                if (exists == 0) db.sql("ALTER TABLE review_days ADD COLUMN $name DATE NULL").fetch().rowsUpdated().awaitSingle()
+            }
+            // Older successful question sets used exactly target_date; preserve their source label.
+            db.sql("UPDATE review_days SET anchor_date = target_date, source_start_date = target_date, source_end_date = target_date WHERE anchor_date IS NULL AND status IN ('READY', 'ACTIVE', 'COMPLETED', 'SKIPPED')")
+                .fetch().rowsUpdated().awaitSingle()
         }
     }
 }

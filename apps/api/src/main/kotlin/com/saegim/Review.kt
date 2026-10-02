@@ -25,7 +25,8 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 @Table("review_days")
 data class ReviewDay(@Id val id: Long? = null, val targetDate: LocalDate, val status: String,
-    val error: String? = null, val createdAt: LocalDateTime, val currentQuestionId: Long? = null)
+    val error: String? = null, val createdAt: LocalDateTime, val currentQuestionId: Long? = null,
+    val anchorDate: LocalDate? = null, val sourceStartDate: LocalDate? = null, val sourceEndDate: LocalDate? = null)
 
 @Table("review_questions")
 data class ReviewQuestion(@Id val id: Long? = null, val reviewDayId: Long, val position: Int,
@@ -37,17 +38,23 @@ interface ReviewDayRepository : ReactiveCrudRepository<ReviewDay, Long> {
 interface ReviewQuestionRepository : ReactiveCrudRepository<ReviewQuestion, Long> {
     @Query("SELECT * FROM review_questions WHERE review_day_id = :dayId ORDER BY position")
     fun forDay(dayId: Long): Flux<ReviewQuestion>
+
+    @Query("SELECT * FROM review_questions WHERE status = 'ANSWERED'")
+    fun answered(): Flux<ReviewQuestion>
 }
 
 // Public views deliberately contain neither expected answers nor source IDs.
 data class QuestionView(val id: Long, val number: Int, val prompt: String, val status: String)
-data class ReviewView(val targetDate: String, val status: String, val error: String?, val total: Int, val current: QuestionView?)
+data class ReviewView(val targetDate: String, val status: String, val error: String?, val total: Int, val current: QuestionView?,
+    val anchorDate: String? = null, val sourceStartDate: String? = null, val sourceEndDate: String? = null)
 data class ReviewOutcome(val review: ReviewView, val messages: List<MessageView> = emptyList())
 data class ReviewActionRequest(val requestId: UUID, @field:Size(max = 6000) val content: String = "")
 
 object ReviewDates {
     private val seoul = ZoneId.of("Asia/Seoul")
     fun yesterday(clock: Clock): LocalDate = LocalDate.now(clock.withZone(seoul)).minusDays(1)
+    fun localDate(utc: LocalDateTime): LocalDate = utc.atOffset(ZoneOffset.UTC).atZoneSameInstant(seoul).toLocalDate()
+    fun candidates(anchor: LocalDate): List<LocalDate> = (0L..2L).map { anchor.minusDays(it) }
     fun bounds(date: LocalDate): Pair<LocalDateTime, LocalDateTime> =
         date.atStartOfDay(seoul).withZoneSameInstant(ZoneOffset.UTC).toLocalDateTime() to
             date.plusDays(1).atStartOfDay(seoul).withZoneSameInstant(ZoneOffset.UTC).toLocalDateTime()
@@ -74,7 +81,8 @@ class ReviewService(
         val rows = questions.forDay(day.id!!).collectList().awaitSingle()
         val current = if (day.status == "ACTIVE") rows.find { it.id == day.currentQuestionId } else null
         return ReviewView(day.targetDate.toString(), day.status, day.error, rows.size,
-            current?.let { QuestionView(it.id!!, it.position, it.question, it.status) })
+            current?.let { QuestionView(it.id!!, it.position, it.question, it.status) },
+            day.anchorDate?.toString(), day.sourceStartDate?.toString(), day.sourceEndDate?.toString())
     }
     suspend fun get() = view(today())
 
@@ -83,12 +91,29 @@ class ReviewService(
         if (day != null && day.status !in setOf("FAILED", "GENERATING")) return@exclusive view(day)
         day = days.save(day?.copy(status = "GENERATING", error = null)
             ?: ReviewDay(targetDate = ReviewDates.yesterday(clock), status = "GENERATING", createdAt = now())).awaitSingle()
-        val generating = day
+        var generating: ReviewDay = requireNotNull(day)
         try {
-            val (start, end) = ReviewDates.bounds(generating.targetDate)
-            val source = messages.forDay(start, end).collectList().awaitSingle()
+            val todayStart = ReviewDates.bounds(ReviewDates.yesterday(clock)).second
+            val latest = messages.latestBefore(todayStart).awaitSingleOrNull()
+            val anchor = latest?.let(ReviewDates::localDate)
+            generating = days.save(generating.copy(anchorDate = anchor, sourceStartDate = null, sourceEndDate = null)).awaitSingle()
+            if (anchor == null) return@exclusive view(days.save(generating.copy(status = "NO_CONVERSATION")).awaitSingle())
+            val reviewedIds = questions.answered().collectList().awaitSingle()
+                .flatMap { json.readValue(it.sourceMessageIds, Array<Long>::class.java).toList() }.toSet()
+            val source = mutableListOf<Message>()
+            var generated = emptyList<GeneratedQuestion>()
+            for (date in ReviewDates.candidates(anchor)) {
+                val (start, end) = ReviewDates.bounds(date)
+                val rows = messages.forDay(start, end).collectList().awaitSingle()
+                // Keep each eligible day's full context, but only ask about unreviewed evidence.
+                if (rows.none { it.role == "assistant" && it.id !in reviewedIds }) continue
+                source.addAll(rows)
+                source.sortWith(compareBy<Message> { it.createdAt }.thenBy { it.id })
+                generating = days.save(generating.copy(sourceStartDate = date, sourceEndDate = generating.sourceEndDate ?: date)).awaitSingle()
+                generated = ai.questions(source, reviewedIds)
+                if (generated.isNotEmpty()) break
+            }
             if (source.isEmpty()) return@exclusive view(days.save(generating.copy(status = "NO_CONVERSATION")).awaitSingle())
-            val generated = ai.questions(source)
             val saved = transactions.executeAndAwait {
                 for ((index, question) in generated.withIndex()) {
                     questions.save(ReviewQuestion(reviewDayId = generating.id!!, position = index + 1,

@@ -54,6 +54,8 @@ class ReviewIntegrationTest {
     private fun response(text: String): MockResponse = MockResponse().setHeader("Content-Type", "application/json")
         .setBody(json.writeValueAsString(mapOf("status" to "completed", "output" to listOf(mapOf("type" to "message", "content" to listOf(mapOf("type" to "output_text", "text" to text)))))))
     private suspend fun source(): Message = messages.save(Message(role = "assistant", content = "WebFlux 이벤트 루프에서 블로킹하면 다른 요청이 지연됩니다.", createdAt = LocalDateTime.parse("2026-10-01T02:00:00"))).awaitSingle()
+    private suspend fun sourceAt(date: String, content: String): Message = messages.save(Message(role = "assistant", content = content,
+        createdAt = ReviewDates.bounds(LocalDate.parse(date)).first.plusHours(1))).awaitSingle()
     private fun generated(id: Long, count: Int = 2): String = json.writeValueAsString(mapOf("questions" to List(count) { index ->
         mapOf("question" to "회상 질문 ${index + 1}", "expectedAnswer" to "SERVER_ONLY_EXPECTED", "sourceIds" to listOf(id)) }))
     private suspend fun clear() {
@@ -149,5 +151,106 @@ class ReviewIntegrationTest {
         val beforeBudget = server.requestCount
         assertEquals("FAILED", review.prepare().status)
         assertEquals(beforeBudget, server.requestCount)
+    }
+
+    @Test fun `missed visits use latest chat day and preserve all of that day`() = runBlocking {
+        clear()
+        clock.time = Instant.parse("2026-10-05T03:00:00Z")
+        val latest = sourceAt("2026-10-01", "LATEST_FULL_A")
+        sourceAt("2026-10-01", "LATEST_FULL_B")
+        sourceAt("2026-09-30", "OLDER_NOT_NEEDED")
+        sourceAt("2026-10-05", "TODAY_EXCLUDED")
+        server.enqueue(response(generated(latest.id!!, 1)))
+        val prepared = review.prepare()
+        val request = server.takeRequest().body.readUtf8()
+        assertEquals("READY", prepared.status)
+        assertEquals("2026-10-01", prepared.anchorDate)
+        assertEquals("2026-10-01", prepared.sourceStartDate)
+        assertEquals(prepared.sourceStartDate, prepared.sourceEndDate)
+        assertTrue(request.contains("LATEST_FULL_A")); assertTrue(request.contains("LATEST_FULL_B"))
+        assertFalse(request.contains("OLDER_NOT_NEEDED")); assertFalse(request.contains("TODAY_EXCLUDED"))
+        val calls = server.requestCount
+        assertEquals(prepared, review.prepare()); assertEquals(calls, server.requestCount)
+        assertEquals(prepared, review.get())
+    }
+
+    @Test fun `zero questions expand cumulatively within three calendar days of latest history`() = runBlocking {
+        clear()
+        sourceAt("2026-09-25", "LATEST_DAY")
+        sourceAt("2026-09-24", "SECOND_DAY")
+        val oldest = sourceAt("2026-09-23", "THIRD_DAY")
+        sourceAt("2026-09-22", "OUTSIDE_WINDOW")
+        server.enqueue(response("{\"questions\":[]}")); server.enqueue(response("{\"questions\":[]}"))
+        server.enqueue(response(generated(oldest.id!!, 1)))
+        val result = review.prepare()
+        val first = server.takeRequest().body.readUtf8()
+        val second = server.takeRequest().body.readUtf8()
+        val third = server.takeRequest().body.readUtf8()
+        assertTrue(first.contains("LATEST_DAY")); assertFalse(first.contains("SECOND_DAY"))
+        val firstInput = json.readTree(json.readTree(first)["input"][0]["content"].asText())
+        assertTrue(firstInput.all { it["date"].asText() == "2026-09-25" })
+        assertTrue(second.contains("LATEST_DAY")); assertTrue(second.contains("SECOND_DAY")); assertFalse(second.contains("THIRD_DAY"))
+        assertTrue(third.contains("LATEST_DAY")); assertTrue(third.contains("SECOND_DAY")); assertTrue(third.contains("THIRD_DAY"))
+        assertFalse(third.contains("OUTSIDE_WINDOW"))
+        assertEquals("READY", result.status)
+        assertEquals("2026-09-25", result.anchorDate)
+        assertEquals("2026-09-23", result.sourceStartDate)
+        assertEquals("2026-09-25", result.sourceEndDate)
+    }
+
+    @Test fun `empty days do not widen calendar window and failure does not fall back`() = runBlocking<Unit> {
+        clear()
+        sourceAt("2026-09-25", "ONLY_LATEST")
+        sourceAt("2026-09-22", "TOO_OLD")
+        server.enqueue(response("{\"questions\":[]}"))
+        val empty = review.prepare(); val sent = server.takeRequest().body.readUtf8()
+        assertEquals("EMPTY", empty.status); assertFalse(sent.contains("TOO_OLD"))
+        val calls = server.requestCount
+        assertEquals(empty, review.prepare()); assertEquals(calls, server.requestCount)
+        clear()
+        val latest = sourceAt("2026-09-25", "LATEST_FAIL")
+        sourceAt("2026-09-24", "NO_FALLBACK_ON_FAILURE")
+        server.enqueue(MockResponse().setResponseCode(500))
+        assertEquals("FAILED", review.prepare().status)
+        assertFalse(server.takeRequest().body.readUtf8().contains("NO_FALLBACK_ON_FAILURE"))
+        server.enqueue(response(generated(latest.id!!, 1)))
+        assertEquals("READY", review.prepare().status); server.takeRequest()
+    }
+
+    @Test fun `answered evidence is context only and unasked same-day material stays eligible`() = runBlocking<Unit> {
+        clear()
+        val answeredSource = sourceAt("2026-10-01", "ALREADY_ASKED")
+        val unasked = sourceAt("2026-10-01", "NOT_YET_ASKED")
+        server.enqueue(response(generated(answeredSource.id!!, 1)))
+        assertEquals("READY", review.prepare().status); server.takeRequest()
+        val question = review.start().review.current!!
+        server.enqueue(response("피드백"))
+        review.action(question.id, ReviewActionRequest(UUID.randomUUID(), "회상 답변"), false); server.takeRequest()
+        review.next()
+        clock.time = Instant.parse("2026-10-03T03:00:00Z")
+        server.enqueue(response(generated(unasked.id!!, 1)))
+        val result = review.prepare(); val request = server.takeRequest().body.readUtf8()
+        assertEquals("READY", result.status)
+        assertTrue(request.contains("ALREADY_ASKED")); assertTrue(request.contains("NOT_YET_ASKED"))
+        val input = json.readTree(json.readTree(request)["input"][0]["content"].asText())
+        assertTrue(input.first { it["id"].asLong() == answeredSource.id }["alreadyReviewed"].asBoolean())
+        assertFalse(input.first { it["id"].asLong() == unasked.id }["alreadyReviewed"].asBoolean())
+        // An erroneous model response referencing answered evidence must fail, not silently fall back.
+        clock.time = Instant.parse("2026-10-04T03:00:00Z")
+        server.enqueue(response(generated(answeredSource.id, 1)))
+        assertEquals("FAILED", review.prepare().status); server.takeRequest()
+    }
+
+    @Test fun `cumulative budget fails without truncation or later AI call`() = runBlocking {
+        clear()
+        sourceAt("2026-10-01", "x".repeat(30000))
+        sourceAt("2026-09-30", "y".repeat(30001))
+        server.enqueue(response("{\"questions\":[]}"))
+        val before = server.requestCount
+        val result = review.prepare(); server.takeRequest()
+        assertEquals("FAILED", result.status)
+        assertEquals(before + 1, server.requestCount)
+        assertEquals("2026-09-30", result.sourceStartDate)
+        assertEquals(0L, questions.count().awaitSingle())
     }
 }
