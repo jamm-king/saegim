@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useRef, useState } from "react";
+import MessageContent from "./message-content";
 
 type Message = { id: number; role: string; content: string; createdAt: string; status: string; kind: string; reviewQuestionId: number | null };
 type Page = { messages: Message[]; nextCursor: number | null };
@@ -149,7 +150,7 @@ export default function Chat() {
       {!loading && !messages.length && <div className="py-20 text-center"><p className="text-xl">오늘은 무엇이 궁금한가요?</p><p className="mt-3 text-sm text-stone-500">짧은 질문 하나로 시작해도 좋아요.</p></div>}
       <div className="space-y-6">{messages.map(message => <article key={message.id} className={message.role === "user" ? "ml-auto max-w-[90%]" : "mr-auto max-w-[95%]"}>
         <div className="mb-2 flex items-center gap-2 text-xs text-stone-500"><span>{message.role === "user" ? "나" : message.kind === "REVIEW" ? "새김 · 복습" : "새김 · OpenAI"}</span><time dateTime={message.createdAt}>{time(message.createdAt)}</time>{message.kind === "REVIEW" && <span>복습</span>}</div>
-        <p className={`whitespace-pre-wrap break-words rounded-2xl px-5 py-4 text-[15px] leading-7 ${message.role === "user" ? "bg-[#e6eee7]" : "border border-stone-200 bg-white"}`}>{message.content}</p>
+        <div className={`min-w-0 rounded-2xl px-5 py-4 text-[15px] leading-7 ${message.role === "user" ? "bg-[#e6eee7]" : "border border-stone-200 bg-white"}`}><MessageContent content={message.content} /></div>
         {message.role === "user" && message.status !== "COMPLETE" && <div className="mt-2 flex items-center gap-3 text-xs text-stone-600"><span>{message.status === "FAILED" ? "AI 응답 실패 · 입력은 저장되었습니다" : "응답 대기 · 중단된 요청은 다시 시도할 수 있습니다"}</span><button disabled={busy || !settings?.configured || (message.kind === "REVIEW" && (!reviewing || review.current?.id !== message.reviewQuestionId || answered))} onClick={() => void send(undefined, message.id)} className="underline underline-offset-4">다시 시도</button></div>}
       </article>)}</div>
       {busy && <p role="status" className="mt-6 text-sm text-stone-500">OpenAI 응답을 기다리는 중…</p>}

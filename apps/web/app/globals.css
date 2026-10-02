@@ -6,3 +6,28 @@ button, textarea { font: inherit; }
 button { cursor: pointer; }
 button:disabled { cursor: default; opacity: .5; }
 button:focus-visible, a:focus-visible { outline: 2px solid #21634c; outline-offset: 4px; }
+
+.message-markdown { min-width: 0; overflow-wrap: anywhere; }
+.message-markdown > * + * { margin-top: .8rem; }
+.message-markdown :is(h1, h2, h3, h4, h5, h6) { font-weight: 700; line-height: 1.5; }
+.message-markdown h1 { font-size: 1.3rem; }
+.message-markdown h2 { font-size: 1.15rem; }
+.message-markdown h3 { font-size: 1rem; }
+.message-markdown strong { font-weight: 700; }
+.message-markdown :is(ul, ol) { padding-left: 1.5rem; }
+.message-markdown ul { list-style-type: disc; }
+.message-markdown ol { list-style-type: decimal; }
+.message-markdown li + li { margin-top: .25rem; }
+.message-markdown li > :is(p, ul, ol) + * { margin-top: .4rem; }
+.message-markdown a { color: #21634c; text-decoration: underline; text-underline-offset: 3px; }
+.message-markdown blockquote { border-left: 3px solid #cbdccf; padding-left: 1rem; color: #57534e; }
+.message-markdown code { border-radius: .25rem; background: #f0f1ed; padding: .1rem .3rem; font-family: Consolas, monospace; font-size: .85em; }
+.message-markdown pre { max-width: 100%; overflow-x: auto; border-radius: .6rem; background: #f0f1ed; padding: .8rem 1rem; line-height: 1.6; }
+.message-markdown pre code { white-space: pre; overflow-wrap: normal; padding: 0; }
+.message-table { max-width: 100%; overflow-x: auto; }
+.message-markdown table { width: 100%; border-collapse: collapse; font-size: .9em; }
+.message-markdown :is(th, td) { border: 1px solid #d6d3d1; padding: .4rem .65rem; min-width: 7rem; vertical-align: top; }
+.message-markdown th { background: #eef4ed; font-weight: 600; }
+.message-markdown hr { border-top: 1px solid #d6d3d1; }
+.message-markdown input[type="checkbox"] { margin-right: .4rem; }
+.message-markdown :is(pre, .message-table):focus-visible { outline: 2px solid #21634c; outline-offset: 2px; }
