@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "test": "node --test tests/*.test.mjs",
     "dev": "next dev --hostname 127.0.0.1",
     "build": "next build",
     "start": "next start --hostname 0.0.0.0",
@@ -14,6 +15,7 @@
     "react-dom": "19.3.0",
     "react-markdown": "10.1.0",
     "remark-breaks": "4.0.0",
+    "remark-cjk-friendly": "2.3.2",
     "remark-gfm": "4.0.1"
   },
   "devDependencies": {
