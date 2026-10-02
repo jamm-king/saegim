@@ -21,6 +21,9 @@ CREATE TABLE IF NOT EXISTS review_days (
     error VARCHAR(500) NULL,
     created_at DATETIME(6) NOT NULL,
     current_question_id BIGINT NULL,
+    anchor_date DATE NULL,
+    source_start_date DATE NULL,
+    source_end_date DATE NULL,
     UNIQUE KEY uq_review_day (target_date)
 );
 

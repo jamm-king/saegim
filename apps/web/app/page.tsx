@@ -7,7 +7,7 @@ type Message = { id: number; role: string; content: string; createdAt: string; s
 type Page = { messages: Message[]; nextCursor: number | null };
 type Settings = { configured: boolean; model: string; mock: boolean };
 type Turn = { user: Message; assistant: Message };
-type Review = { targetDate: string; status: string; error: string | null; total: number; current: { id: number; number: number; prompt: string; status: string } | null };
+type Review = { targetDate: string; anchorDate: string | null; sourceStartDate: string | null; sourceEndDate: string | null; status: string; error: string | null; total: number; current: { id: number; number: number; prompt: string; status: string } | null };
 type ReviewOutcome = { review: Review; messages: Message[] };
 const time = (value: string) => new Intl.DateTimeFormat("ko-KR", { timeZone: "Asia/Seoul", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(new Date(value));
 
@@ -128,6 +128,7 @@ export default function Chat() {
   const confirmed = messages.some(message => message.role === "assistant" && message.kind === "CHAT");
   const reviewing = review?.status === "ACTIVE";
   const answered = reviewing && review.current?.status === "ANSWERED";
+  const sourceLabel = review?.sourceStartDate ? review.sourceStartDate === review.sourceEndDate ? `${review.sourceStartDate} 대화 복습` : `${review.sourceStartDate} ~ ${review.sourceEndDate} 대화 복습` : "최근 대화 복습";
   return <main className="mx-auto flex h-dvh max-w-3xl flex-col px-5 sm:px-8">
     <header className="shrink-0 border-b border-stone-200 py-5">
       <div className="flex items-center justify-between gap-3"><h1 className="text-2xl font-semibold tracking-tight">새김<span className="ml-3 text-sm font-normal text-stone-500">오늘의 대화</span></h1><span className="rounded-full bg-white px-3 py-1 text-xs text-stone-600">나의 작은 배움</span></div>
@@ -135,12 +136,12 @@ export default function Chat() {
       <p className="mt-3 text-xs text-stone-500">{!settings ? "연결 상태 확인 중" : !settings.configured ? "OpenAI 키 미설정 · 서버 설정이 필요합니다" : confirmed ? `OpenAI 실제 응답 기록 있음 · ${settings.model}` : `OpenAI 키 설정됨 · ${settings.model} · 첫 응답 대기`}</p>
     </header>
     <section aria-label="대화 내역" className="min-h-0 flex-1 overflow-y-auto py-6">
-      {review && !reviewing && <aside aria-label="전날 복습" className="mb-6 rounded-2xl border border-[#cbdccf] bg-[#eef4ed] p-4 text-sm">
-        <p className="text-xs text-stone-500">{review.targetDate} 대화 복습</p>
-        {review.status === "READY" && <><p className="mt-2">어제 이야기에서 {review.total}개의 질문을 준비했어요. 떠올려 볼까요?</p><div className="mt-3 flex gap-4"><button disabled={busy || loading} onClick={() => void reviewCommand("start")} className="font-semibold text-[#21634c]">복습 시작</button><button disabled={busy || loading} onClick={() => void reviewCommand("skip")} className="text-stone-600">오늘은 건너뛰기</button></div></>}
-        {review.status === "NO_CONVERSATION" && <p className="mt-2">어제의 완료된 일반 대화가 없어 복습을 준비하지 않았어요.</p>}
-        {review.status === "EMPTY" && <p className="mt-2">어제 대화를 살펴봤지만 회상 질문으로 만들 학습 내용이 없었어요.</p>}
-        {review.status === "GENERATING" && <p role="status" className="mt-2">어제 대화에서 질문을 준비하는 중…</p>}
+      {review && !reviewing && <aside aria-label="최근 대화 복습" className="mb-6 rounded-2xl border border-[#cbdccf] bg-[#eef4ed] p-4 text-sm">
+        <p className="text-xs text-stone-500">{sourceLabel}</p>
+        {review.status === "READY" && <><p className="mt-2">최근 이야기에서 {review.total}개의 질문을 준비했어요. 떠올려 볼까요?</p><div className="mt-3 flex gap-4"><button disabled={busy || loading} onClick={() => void reviewCommand("start")} className="font-semibold text-[#21634c]">복습 시작</button><button disabled={busy || loading} onClick={() => void reviewCommand("skip")} className="text-stone-600">오늘은 건너뛰기</button></div></>}
+        {review.status === "NO_CONVERSATION" && <p className="mt-2">최근 대화 날짜 기준 3일 범위에 복습할 미복습 대화가 없어요.</p>}
+        {review.status === "EMPTY" && <p className="mt-2">최근 대화 날짜 기준 3일 범위를 살펴봤지만 회상 질문으로 만들 학습 내용이 없었어요.</p>}
+        {review.status === "GENERATING" && <p role="status" className="mt-2">최근 대화에서 질문을 준비하는 중…</p>}
         {review.status === "FAILED" && <div role="alert" className="mt-2"><p>복습 질문을 만들지 못했어요. {review.error}</p><button disabled={busy || loading} onClick={() => void reviewCommand("prepare")} className="mt-3 underline underline-offset-4">다시 생성하기</button></div>}
         {review.status === "COMPLETED" && <p className="mt-2">오늘 복습을 마쳤어요. 일반 대화를 이어가세요.</p>}
         {review.status === "SKIPPED" && <p className="mt-2">오늘 복습은 건너뛰었어요. 일반 대화를 이어가세요.</p>}
@@ -158,6 +159,7 @@ export default function Chat() {
     </section>
     <footer className="shrink-0 bg-[#f7f6f2] pb-5 pt-3">
       {reviewing && <div aria-label="현재 복습 질문" className="mb-3 rounded-xl border border-[#cbdccf] bg-[#eef4ed] p-3 text-sm">
+        <p className="mb-1 text-xs text-stone-500">{sourceLabel}</p>
         <p className="text-xs text-stone-600">질문 {review.current?.number} / {review.total}{answered ? " · 답변 완료" : ""}</p>
         {!answered && <p className="mt-2 leading-6">{review.current?.prompt}</p>}
         <div className="mt-3 flex flex-wrap gap-4">{answered ? <button disabled={busy} onClick={() => void reviewCommand("next")} className="font-semibold text-[#21634c]">{review.current?.number === review.total ? "복습 마치기" : "다음 질문"}</button> : <button disabled={busy || !settings?.configured} onClick={() => void hint()} className="font-semibold text-[#21634c]">힌트 보기</button>}<button disabled={busy} onClick={() => void reviewCommand("skip")} className="text-stone-600">복습을 건너뛰고 대화하기</button></div>

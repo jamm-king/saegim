@@ -51,6 +51,9 @@ interface MessageRepository : ReactiveCrudRepository<Message, Long> {
     @Query("SELECT * FROM messages WHERE kind = 'CHAT' AND status = 'COMPLETE' AND created_at >= :start AND created_at < :end ORDER BY id")
     fun forDay(start: LocalDateTime, end: LocalDateTime): Flux<Message>
 
+    @Query("SELECT created_at FROM messages WHERE kind = 'CHAT' AND status = 'COMPLETE' AND created_at < :end ORDER BY created_at DESC LIMIT 1")
+    fun latestBefore(end: LocalDateTime): Mono<LocalDateTime>
+
     @Query("SELECT * FROM messages WHERE id < :before ORDER BY id DESC LIMIT 21")
     fun page(before: Long): Flux<Message>
 
