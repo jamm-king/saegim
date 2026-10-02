@@ -1,5 +1,6 @@
-package com.saegim
+package com.saegim.adapter.`in`.web
 
+import com.saegim.domain.ApplicationFailure
 import org.springframework.http.HttpStatus
 import org.springframework.http.ProblemDetail
 import org.springframework.web.bind.annotation.ExceptionHandler
@@ -10,6 +11,10 @@ import org.springframework.web.server.ServerWebInputException
 
 @RestControllerAdvice
 class ApiErrors {
+    @ExceptionHandler(ApplicationFailure::class)
+    fun application(error: ApplicationFailure): ProblemDetail =
+        ProblemDetail.forStatusAndDetail(HttpStatus.valueOf(error.kind.name), error.message ?: "요청을 완료하지 못했습니다.")
+
     @ExceptionHandler(ResponseStatusException::class)
     fun status(error: ResponseStatusException): ProblemDetail =
         ProblemDetail.forStatusAndDetail(error.statusCode, error.reason ?: "요청을 완료하지 못했습니다.")

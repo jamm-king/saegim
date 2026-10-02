@@ -66,6 +66,8 @@ docker compose ps
 
 ## 확인 방법
 
+백엔드는 단일 Gradle 프로젝트 안의 헥사고날 구조로 구성한다. 도메인과 대화·복습 유스케이스는 Spring·R2DBC·OpenAI 구현을 직접 참조하지 않고 포트를 사용한다. HTTP·DB·AI 어댑터와 구성 코드는 외부 연결을 담당한다. 코드 위치와 의존성 방향은 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)를 참고한다.
+
 `docker compose build`에서 백엔드 OpenAI HTTP 연동 테스트와 웹 TypeScript 검사 및 프로덕션 빌드를 실행한다. 백엔드 테스트는 테스트 서버의 응답을 사용하며 실제 AI 호출과 구분한다.
 
 ```powershell

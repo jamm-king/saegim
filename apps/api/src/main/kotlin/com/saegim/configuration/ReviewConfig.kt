@@ -1,4 +1,4 @@
-package com.saegim
+package com.saegim.configuration
 
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.reactor.awaitSingle

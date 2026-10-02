@@ -1,5 +1,11 @@
 package com.saegim
 
+import com.saegim.domain.*
+import com.saegim.application.*
+import com.saegim.application.port.TransactionBoundary
+import com.saegim.adapter.out.persistence.*
+import com.saegim.adapter.out.persistence.MessageEntity as Message
+
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.reactor.awaitSingle
 import okhttp3.mockwebserver.MockResponse
@@ -15,6 +21,9 @@ import org.springframework.context.annotation.Primary
 import org.springframework.r2dbc.core.DatabaseClient
 import org.springframework.test.context.DynamicPropertyRegistry
 import org.springframework.test.context.DynamicPropertySource
+import org.springframework.core.env.Environment
+import org.springframework.http.MediaType
+import org.springframework.test.web.reactive.server.WebTestClient
 import tools.jackson.databind.ObjectMapper
 import java.time.*
 import java.util.UUID
@@ -33,7 +42,7 @@ class ReviewIntegrationConfig {
 
 // Only runs against an explicitly isolated MySQL schema supplied by the test runner.
 @EnabledIfEnvironmentVariable(named = "RUN_REVIEW_INTEGRATION", matches = "true")
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.NONE)
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Import(ReviewIntegrationConfig::class)
 class ReviewIntegrationTest {
     @Autowired lateinit var review: ReviewService
@@ -43,6 +52,11 @@ class ReviewIntegrationTest {
     @Autowired lateinit var clock: TestReviewClock
     @Autowired lateinit var db: DatabaseClient
     @Autowired lateinit var json: ObjectMapper
+    @Autowired lateinit var transactions: TransactionBoundary
+    @Autowired lateinit var environment: Environment
+
+    private fun http() = WebTestClient.bindToServer()
+        .baseUrl("http://127.0.0.1:${environment.getRequiredProperty("local.server.port")}").build()
 
     companion object {
         val server = MockWebServer().also { it.start() }
@@ -104,7 +118,7 @@ class ReviewIntegrationTest {
         assertEquals(hintCalls, server.requestCount)
         val answerId = UUID.randomUUID()
         server.enqueue(MockResponse().setResponseCode(429).setBody("PRIVATE_PROVIDER_ERROR"))
-        assertFailsWith<org.springframework.web.server.ResponseStatusException> { review.action(first.id, ReviewActionRequest(answerId, "다른 요청이 지연됩니다"), false) }
+        assertFailsWith<ApplicationFailure> { review.action(first.id, ReviewActionRequest(answerId, "다른 요청이 지연됩니다"), false) }
         server.takeRequest()
         assertEquals("FAILED", messages.findByRequestId(answerId.toString()).awaitSingle().status)
         assertEquals("ACTIVE", review.get().current!!.status)
@@ -239,6 +253,70 @@ class ReviewIntegrationTest {
         clock.time = Instant.parse("2026-10-04T03:00:00Z")
         server.enqueue(response(generated(answeredSource.id, 1)))
         assertEquals("FAILED", review.prepare().status); server.takeRequest()
+    }
+
+    @Test fun `HTTP chat contract validation conflicts and retry remain compatible`() = runBlocking<Unit> {
+        clear()
+        val client = http()
+        client.get().uri("/api/settings").exchange().expectStatus().isOk
+            .expectBody().jsonPath("$.provider").isEqualTo("OpenAI").jsonPath("$.mock").isEqualTo(false)
+        client.get().uri("/api/messages?before=0").exchange().expectStatus().isBadRequest
+        client.post().uri("/api/chat").contentType(MediaType.APPLICATION_JSON)
+            .bodyValue(mapOf("requestId" to UUID.randomUUID(), "content" to " ")).exchange().expectStatus().isBadRequest
+        client.post().uri("/api/messages/999999/retry").exchange().expectStatus().isNotFound
+        val requestId = UUID.randomUUID()
+        server.enqueue(response("일반 대화 응답"))
+        client.post().uri("/api/chat").contentType(MediaType.APPLICATION_JSON)
+            .bodyValue(mapOf("requestId" to requestId, "content" to "질문")).exchange().expectStatus().isOk
+            .expectBody().jsonPath("$.user.status").isEqualTo("COMPLETE")
+            .jsonPath("$.assistant.content").isEqualTo("일반 대화 응답")
+        server.takeRequest()
+        val user = messages.findByRequestId(requestId.toString()).awaitSingle()
+        val calls = server.requestCount
+        client.post().uri("/api/messages/${user.id}/retry").exchange().expectStatus().isOk
+        assertEquals(calls, server.requestCount)
+        client.post().uri("/api/chat").contentType(MediaType.APPLICATION_JSON)
+            .bodyValue(mapOf("requestId" to requestId, "content" to "다른 질문")).exchange().expectStatus().isEqualTo(409)
+        val failedId = UUID.randomUUID()
+        server.enqueue(MockResponse().setResponseCode(500))
+        client.post().uri("/api/chat").contentType(MediaType.APPLICATION_JSON)
+            .bodyValue(mapOf("requestId" to failedId, "content" to "재시도 질문")).exchange().expectStatus().isEqualTo(502)
+        server.takeRequest()
+        val failed = messages.findByRequestId(failedId.toString()).awaitSingle()
+        assertEquals("FAILED", failed.status)
+        server.enqueue(response("재시도 응답"))
+        client.post().uri("/api/messages/${failed.id}/retry").exchange().expectStatus().isOk
+            .expectBody().jsonPath("$.user.id").isEqualTo(failed.id!!.toInt())
+        server.takeRequest()
+        assertEquals(4L, messages.count().awaitSingle())
+    }
+
+    @Test fun `HTTP review hides expected answers and source evidence after mapping`() = runBlocking<Unit> {
+        clear()
+        val source = source()
+        val client = http()
+        server.enqueue(response(generated(source.id!!, 1)))
+        val body = client.post().uri("/api/review/prepare").exchange().expectStatus().isOk
+            .expectBody().jsonPath("$.status").isEqualTo("READY")
+            .jsonPath("$.sourceStartDate").isEqualTo("2026-10-01").returnResult().responseBody!!
+        server.takeRequest()
+        val text = body.toString(Charsets.UTF_8)
+        assertFalse(text.contains("expectedAnswer")); assertFalse(text.contains("sourceIds"))
+        client.post().uri("/api/review/start").exchange().expectStatus().isOk
+            .expectBody().jsonPath("$.review.current.prompt").isEqualTo("회상 질문 1")
+        client.post().uri("/api/review/questions/999999/answer").contentType(MediaType.APPLICATION_JSON)
+            .bodyValue(mapOf("requestId" to UUID.randomUUID(), "content" to "답변")).exchange().expectStatus().isNotFound
+    }
+
+    @Test fun `transaction port rolls back real R2DBC writes`() = runBlocking<Unit> {
+        clear()
+        assertFailsWith<IllegalStateException> {
+            transactions.execute {
+                messages.save(Message(role = "assistant", content = "롤백 대상")).awaitSingle()
+                throw IllegalStateException("force rollback")
+            }
+        }
+        assertEquals(0L, messages.count().awaitSingle())
     }
 
     @Test fun `cumulative budget fails without truncation or later AI call`() = runBlocking {
