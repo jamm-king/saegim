@@ -23,10 +23,12 @@ OpenAI Responses API의 Structured Outputs로 질문·기대 답·근거 메시�
 - `review_days`: 접속일별 생성·진행 상태, 오류, 현재 질문 ID. 기존 `target_date`는 호환성을 위해 접속일의 전날 값으로 유지하며 실제 출제 날짜를 의미하지 않는다. UNIQUE 제약으로 하루의 성공 결과를 재사용한다. `anchor_date`는 탐색 기준 날짜, `source_start_date`·`source_end_date`는 실제 누적한 원문의 날짜 범위다. 기존 성공 묶음은 기존 `target_date`를 원문 범위로 보완하여 유지한다.
 - `review_questions`: 순서, 질문, 기대 답, 근거 메시지 ID, 진행 상태. 날짜별 순서에 UNIQUE 제약.
 - `messages`: 기존 구조에 `review_question_id`, `review_action`을 추가했다. 기동 시 기존 DB의 누락 컬럼만 추가하고 기존 대화는 보존한다.
-- `ReviewDayRepository`, `ReviewQuestionRepository`, `MessageRepository`: R2DBC 저장·조회.
-- `ReviewService`: 날짜별 준비, 시작, 다음 문제, 건너뛰기, 답변·힌트·재시도.
-- `ReviewAi`: 출제용 JSON Schema, 근거·입력 한도 검증, 힌트·피드백 요청.
+- `ReviewDayStore`, `ReviewQuestionStore`, `MessageStore`: 애플리케이션 저장소 포트. R2DBC 어댑터가 구현하고 기존 `ReviewDayRepository`, `ReviewQuestionRepository`, `MessageRepository`를 내부에서 사용한다.
+- `ReviewService`: 날짜별 준비, 시작, 다음 문제, 건너뛰기, 답변·힌트·재시도 유스케이스. Spring·R2DBC·HTTP 의존성은 없다.
+- `ReviewAi`: AI 포트. `OpenAiReviewAdapter`가 출제용 JSON Schema와 힌트·피드백 요청을 구현하며, `ReviewRules`가 근거·입력 한도를 검증한다.
 - `ReviewConfig`: 시계와 기동 시 스키마 보완. 스키마 보완은 기동 스레드에서 실행하며 런타임 이벤트 루프를 차단하지 않는다.
+
+현재 코드 구조와 의존성 방향은 [ARCHITECTURE.md](ARCHITECTURE.md)를 참고한다. 아래 과거 검증 기록의 클래스명은 검증 당시 기준이다.
 
 질문 묶음과 성공 상태, 답변·AI 응답·질문 완료 상태는 각각 DB 트랜잭션으로 함께 저장한다. 같은 요청 ID를 다시 보내면 기존 메시지와 응답을 재사용한다. 생성 도중 프로세스가 중단되어 `GENERATING`으로 남으면 다음 준비 요청에서 다시 시도할 수 있다. 로컬 단일 API 인스턴스에서 복습 변경 요청을 하나씩 처리하며 별도의 스케줄러나 큐는 두지 않는다.
 

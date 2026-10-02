@@ -1,5 +1,8 @@
 package com.saegim
 
+import com.saegim.domain.*
+import com.saegim.adapter.out.ai.*
+
 import kotlinx.coroutines.test.runTest
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
