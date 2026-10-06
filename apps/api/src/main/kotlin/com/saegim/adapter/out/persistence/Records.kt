@@ -16,6 +16,7 @@ data class MessageEntity(
     val inReplyTo: Long? = null,
     val reviewQuestionId: Long? = null,
     val reviewAction: String? = null,
+    val failureReason: String? = null,
 )
 
 @Table("review_days")

@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS messages (
     in_reply_to BIGINT NULL,
     review_question_id BIGINT NULL,
     review_action VARCHAR(16) NULL,
+    failure_reason VARCHAR(500) NULL,
     UNIQUE KEY uq_messages_request (request_id),
     UNIQUE KEY uq_messages_reply (in_reply_to),
     KEY idx_messages_day (kind, created_at)

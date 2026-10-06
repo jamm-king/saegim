@@ -4,7 +4,7 @@ import com.saegim.domain.Message
 import java.time.ZoneOffset
 import java.util.UUID
 
-data class MessageView(val id: Long, val role: String, val content: String, val createdAt: String, val status: String, val kind: String, val reviewQuestionId: Long?)
+data class MessageView(val id: Long, val role: String, val content: String, val createdAt: String, val status: String, val kind: String, val reviewQuestionId: Long?, val failureReason: String? = null)
 data class MessagePage(val messages: List<MessageView>, val nextCursor: Long?)
 data class ChatRequest(val requestId: UUID, val content: String)
 data class Turn(val user: MessageView, val assistant: MessageView)
@@ -19,4 +19,4 @@ data class ReviewActionRequest(val requestId: UUID, val content: String = "")
 data class AiSettings(val provider: String, val model: String, val configured: Boolean,
     val mock: Boolean = false, val contextMessages: Int = 20)
 
-fun Message.view() = MessageView(id!!, role, content, createdAt.toInstant(ZoneOffset.UTC).toString(), status, kind, reviewQuestionId)
+fun Message.view() = MessageView(id!!, role, content, createdAt.toInstant(ZoneOffset.UTC).toString(), status, kind, reviewQuestionId, failureReason)

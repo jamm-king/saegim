@@ -3,7 +3,7 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import MessageContent from "./message-content";
 
-type Message = { id: number; role: string; content: string; createdAt: string; status: string; kind: string; reviewQuestionId: number | null };
+type Message = { id: number; role: string; content: string; createdAt: string; status: string; kind: string; reviewQuestionId: number | null; failureReason: string | null };
 type Page = { messages: Message[]; nextCursor: number | null };
 type Settings = { configured: boolean; model: string; mock: boolean };
 type Turn = { user: Message; assistant: Message };
@@ -152,7 +152,10 @@ export default function Chat() {
       <div className="space-y-6">{messages.map(message => <article key={message.id} className={message.role === "user" ? "ml-auto max-w-[90%]" : "mr-auto max-w-[95%]"}>
         <div className="mb-2 flex items-center gap-2 text-xs text-stone-500"><span>{message.role === "user" ? "나" : message.kind === "REVIEW" ? "새김 · 복습" : "새김 · OpenAI"}</span><time dateTime={message.createdAt}>{time(message.createdAt)}</time>{message.kind === "REVIEW" && <span>복습</span>}</div>
         <div className={`min-w-0 rounded-2xl px-5 py-4 text-[15px] leading-7 ${message.role === "user" ? "bg-[#e6eee7]" : "border border-stone-200 bg-white"}`}><MessageContent content={message.content} /></div>
-        {message.role === "user" && message.status !== "COMPLETE" && <div className="mt-2 flex items-center gap-3 text-xs text-stone-600"><span>{message.status === "FAILED" ? "AI 응답 실패 · 입력은 저장되었습니다" : "응답 대기 · 중단된 요청은 다시 시도할 수 있습니다"}</span><button disabled={busy || !settings?.configured || (message.kind === "REVIEW" && (!reviewing || review.current?.id !== message.reviewQuestionId || answered))} onClick={() => void send(undefined, message.id)} className="underline underline-offset-4">다시 시도</button></div>}
+        {message.role === "user" && message.status !== "COMPLETE" && <div className="mt-2 text-xs text-stone-600">
+          <div className="flex flex-wrap items-center gap-3"><span>{message.status === "FAILED" ? "AI 응답 실패 · 입력은 저장되었습니다" : "응답 대기 · 중단된 요청은 다시 시도할 수 있습니다"}</span><button disabled={busy || !settings?.configured || (message.kind === "REVIEW" && (!reviewing || review.current?.id !== message.reviewQuestionId || answered))} onClick={() => void send(undefined, message.id)} className="underline underline-offset-4">다시 시도</button></div>
+          {message.status === "FAILED" && <p className="mt-2 rounded-lg bg-red-50 p-3 leading-5 text-red-800">실패 사유: {message.failureReason || "이전 요청의 자세한 실패 사유는 기록되지 않았습니다. 다시 시도하면 새 실패 사유를 확인할 수 있습니다."}</p>}
+        </div>}
       </article>)}</div>
       {busy && <p role="status" className="mt-6 text-sm text-stone-500">OpenAI 응답을 기다리는 중…</p>}
       <div ref={bottom} />

@@ -71,7 +71,7 @@ class ReviewService(
             }
             view(saved)
         } catch (e: Exception) {
-            logger.warning("Review generation failed: ${e.javaClass.simpleName}")
+            logger.warning("Review generation failed: reviewDayId=${generating.id} ${e.failureLog()}")
             val reason = if (e is AiUnavailable) e.message else "복습 질문 생성에 실패했습니다. 다시 시도해 주세요."
             view(days.save(generating.copy(status = "FAILED", error = reason?.take(500))))
         }
@@ -131,7 +131,7 @@ class ReviewService(
         }
         if (day.status != "ACTIVE" || day.currentQuestionId != id || question.status != "ACTIVE")
             throw ApplicationFailure(FailureKind.CONFLICT, "현재 진행 중인 질문이 아닙니다. 복습 상태를 새로고침해 주세요.")
-        user = messages.save(user?.copy(status = "PENDING") ?: Message(requestId = request.requestId.toString(),
+        user = messages.save(user?.copy(status = "PENDING", failureReason = null) ?: Message(requestId = request.requestId.toString(),
             role = "user", content = content, kind = "REVIEW", status = "PENDING", createdAt = now(),
             reviewQuestionId = id, reviewAction = action))
         val pending = user
@@ -150,9 +150,9 @@ class ReviewService(
             }
             ReviewOutcome(view(day), listOf(saved.first.view(), saved.second.view()))
         } catch (e: Exception) {
-            messages.save(pending.copy(status = "FAILED"))
-            logger.warning("Review response failed: ${e.javaClass.simpleName}")
             val reason = if (e is AiUnavailable) e.message else "복습 응답을 완료하지 못했습니다."
+            messages.save(pending.copy(status = "FAILED", failureReason = reason?.take(500)))
+            logger.warning("Review response failed: messageId=${pending.id} questionId=$id ${e.failureLog()}")
             throw ApplicationFailure(FailureKind.BAD_GATEWAY, "$reason 저장된 답변에서 다시 시도해 주세요.")
         }
     }

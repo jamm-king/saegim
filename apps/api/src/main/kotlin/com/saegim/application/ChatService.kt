@@ -35,7 +35,7 @@ class ChatService(
             if (user == null) user = messages.save(Message(requestId = requestId, role = "user", content = content, status = "PENDING"))
             val existing = messages.findByInReplyTo(user.id!!)
             if (existing != null) return Turn(user.view(), existing.view())
-            user = messages.save(user.copy(status = "PENDING"))
+            user = messages.save(user.copy(status = "PENDING", failureReason = null))
             val pending = user
             try {
                 val history = messages.context(pending.id!!).reversed()
@@ -48,9 +48,9 @@ class ChatService(
                     Turn(completed.view(), assistant.view())
                 }
             } catch (e: Exception) {
-                messages.save(pending.copy(status = "FAILED"))
-                logger.warning("Chat response failed: ${e.javaClass.simpleName}")
                 val reason = if (e is AiUnavailable) e.message else "AI 응답을 완료하지 못했습니다."
+                messages.save(pending.copy(status = "FAILED", failureReason = reason?.take(500)))
+                logger.warning("Chat response failed: messageId=${pending.id} ${e.failureLog()}")
                 throw ApplicationFailure(FailureKind.BAD_GATEWAY, "$reason 저장된 질문에서 다시 시도해 주세요.")
             }
         } finally {
