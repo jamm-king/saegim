@@ -77,6 +77,38 @@ private class FakeReviewAi : ReviewAi {
 }
 
 class UseCaseTest {
+    @Test fun `chat logs a safe reason and message id without unexpected exception details`() = runTest {
+        val messages = MemoryMessages()
+        var unavailable = true
+        val ai = object : ChatAi {
+            override val settings = AiSettings("test", "fixture", true, mock = true)
+            override suspend fun reply(messages: List<Message>): String {
+                if (unavailable) throw AiUnavailable("출력 한도에 도달했습니다.", AiFailureReason.OUTPUT_LIMIT)
+                throw IllegalStateException("PRIVATE_KEY PRIVATE_QUESTION")
+            }
+        }
+        val logs = mutableListOf<String>()
+        val handler = object : java.util.logging.Handler() {
+            override fun publish(record: java.util.logging.LogRecord) { logs += record.message }
+            override fun flush() {}
+            override fun close() {}
+        }
+        val logger = java.util.logging.Logger.getLogger(ChatService::class.java.name)
+        logger.addHandler(handler)
+        try {
+            val service = ChatService(messages, ai, DirectTransaction)
+            assertFailsWith<ApplicationFailure> { service.send(ChatRequest(UUID.randomUUID(), "PRIVATE_QUESTION")) }
+            assertTrue(logs.last().contains("messageId=1 reason=OUTPUT_LIMIT"))
+            assertTrue(logs.last().contains("출력 한도"))
+            unavailable = false
+            val failure = assertFailsWith<ApplicationFailure> { service.retry(1) }
+            assertTrue(logs.last().contains("reason=INTERNAL_ERROR type=IllegalStateException"))
+            assertFalse(logs.any { it.contains("PRIVATE") })
+            assertFalse(failure.message!!.contains("PRIVATE"))
+            assertFalse(messages.rows[1]!!.failureReason!!.contains("PRIVATE"))
+        } finally { logger.removeHandler(handler) }
+    }
+
     @Test fun `chat failure is saved and retried without duplicate turn`() = runTest {
         val messages = MemoryMessages()
         val ai = FakeChatAi()
@@ -87,10 +119,14 @@ class UseCaseTest {
         assertEquals(FailureKind.BAD_GATEWAY, error.kind)
         val failed = messages.rows.values.single()
         assertEquals("FAILED", failed.status)
+        assertEquals("테스트 실패", failed.failureReason)
+        assertEquals("테스트 실패", service.page(null).messages.single().failureReason)
+        assertTrue(error.message!!.contains("테스트 실패"))
         ai.fail = false
         val retried = service.retry(failed.id!!)
         assertEquals(failed.id, retried.user.id)
         assertEquals("COMPLETE", retried.user.status)
+        assertNull(retried.user.failureReason)
         assertEquals(retried, service.send(request))
         assertEquals(2, messages.rows.size)
         assertEquals(2, ai.calls)

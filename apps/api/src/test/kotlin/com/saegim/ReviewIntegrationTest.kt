@@ -124,10 +124,14 @@ class ReviewIntegrationTest {
         assertEquals("ACTIVE", review.get().current!!.status)
         server.enqueue(response("다른 요청이 지연되는 점을 떠올렸습니다."))
         val failed = messages.findByRequestId(answerId.toString()).awaitSingle()
+        assertTrue(failed.failureReason!!.contains("호출 제한"))
+        assertFalse(failed.failureReason!!.contains("PRIVATE_PROVIDER"))
         val answered = review.retry(failed.id!!)
         server.takeRequest()
         assertEquals("ANSWERED", answered.review.current!!.status)
         assertEquals(failed.id, answered.messages.first().id)
+        assertNull(answered.messages.first().failureReason)
+        assertNull(messages.findById(failed.id!!).awaitSingle().failureReason)
         assertEquals(answered.review, review.get())
         assertEquals(2, review.next().review.current!!.number)
         assertEquals("SKIPPED", review.skip().review.status)
@@ -278,16 +282,21 @@ class ReviewIntegrationTest {
         client.post().uri("/api/chat").contentType(MediaType.APPLICATION_JSON)
             .bodyValue(mapOf("requestId" to requestId, "content" to "다른 질문")).exchange().expectStatus().isEqualTo(409)
         val failedId = UUID.randomUUID()
-        server.enqueue(MockResponse().setResponseCode(500))
+        server.enqueue(MockResponse().setHeader("Content-Type", "application/json").setBody("""{"status":"incomplete","incomplete_details":{"reason":"max_output_tokens"},"output":[{"type":"message","content":[{"type":"output_text","text":"PRIVATE_PARTIAL_ANSWER"}]}]}"""))
         client.post().uri("/api/chat").contentType(MediaType.APPLICATION_JSON)
             .bodyValue(mapOf("requestId" to failedId, "content" to "재시도 질문")).exchange().expectStatus().isEqualTo(502)
+            .expectBody().jsonPath("$.detail").value<String> { assertTrue(it.contains("2400토큰")); assertFalse(it.contains("PRIVATE")) }
         server.takeRequest()
         val failed = messages.findByRequestId(failedId.toString()).awaitSingle()
         assertEquals("FAILED", failed.status)
+        assertTrue(failed.failureReason!!.contains("2400토큰"))
+        client.get().uri("/api/messages").exchange().expectStatus().isOk
+            .expectBody().jsonPath("$.messages[2].failureReason").isEqualTo(failed.failureReason)
         server.enqueue(response("재시도 응답"))
         client.post().uri("/api/messages/${failed.id}/retry").exchange().expectStatus().isOk
             .expectBody().jsonPath("$.user.id").isEqualTo(failed.id!!.toInt())
         server.takeRequest()
+        assertNull(messages.findById(failed.id!!).awaitSingle().failureReason)
         assertEquals(4L, messages.count().awaitSingle())
     }
 

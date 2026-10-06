@@ -23,7 +23,7 @@ class ReviewConfig {
     fun reviewSchemaMigration(db: DatabaseClient) = InitializingBean {
         // Only blocks the startup thread, before review controllers are initialized.
         runBlocking {
-            for ((name, type) in listOf("review_question_id" to "BIGINT NULL", "review_action" to "VARCHAR(16) NULL")) {
+            for ((name, type) in listOf("review_question_id" to "BIGINT NULL", "review_action" to "VARCHAR(16) NULL", "failure_reason" to "VARCHAR(500) NULL")) {
                 val exists = db.sql("SELECT COUNT(*) AS n FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'messages' AND column_name = :name")
                     .bind("name", name).map { row, _ -> (row.get("n") as Number).toInt() }.one().awaitSingle()
                 if (exists == 0) db.sql("ALTER TABLE messages ADD COLUMN $name $type").fetch().rowsUpdated().awaitSingle()
